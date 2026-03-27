@@ -22,6 +22,30 @@ function RetrieveComponents()
     Database = exports['mythic-base']:FetchComponent('Database')
 end
 
+local function DoorIdExists(id, ignoreIndex)
+    if not id or id == '' or id == false then return false, nil end
+
+    for k, v in ipairs(_doorConfig or {}) do
+        if k ~= ignoreIndex and v and not v.removed and v.id == id then
+            return true, k
+        end
+    end
+
+    return false, nil
+end
+
+local function ElevatorIdExists(id, ignoreIndex)
+    if not id or id == '' or id == false then return false, nil end
+
+    for k, v in ipairs(_elevatorConfig or {}) do
+        if k ~= ignoreIndex and v and not v.removed and v.id == id then
+            return true, k
+        end
+    end
+
+    return false, nil
+end
+
 AddEventHandler('Core:Shared:Ready', function()
     exports['mythic-base']:RequestDependencies('Doors', {
         'Callbacks',
@@ -56,12 +80,12 @@ function RunStartup()
 
     DOORS_CACHE = {}
     DOORS_IDS = {}
-    
+
     ELEVATOR_CACHE = {}
     ELEVATOR_IDS = {}
 
     for k, v in ipairs(_doorConfig) do
-        if v.model and v.coords then
+        if not v.removed and v.model and v.coords then
             if v.id then
                 if DOORS_IDS[v.id] then
                     Logger:Warn(
@@ -79,44 +103,44 @@ function RunStartup()
             end
 
             DOORS_CACHE[k] = {
-                locked = v.locked,
+                locked = v.locked or false,
             }
-        else
-            Logger:Warn('Doors', 'Door: '.. (v.id and v.id or k), ' Missing Required Data')
+        elseif not v.removed then
+            Logger:Warn('Doors', 'Door: ' .. (v.id and v.id or k), ' Missing Required Data')
         end
     end
 
     for k, v in ipairs(_elevatorConfig) do
-        ELEVATOR_CACHE[k] = {
-            floors = {}
-        }
-
-        if v.id then
-            ELEVATOR_IDS = ELEVATOR_IDS or {}
-
-            if ELEVATOR_IDS[v.id] then
-                Logger:Warn(
-                    'Doors',
-                    string.format(
-                        'Duplicate Elevator ID "%s" found at index %s (already registered to index %s)',
-                        v.id,
-                        k,
-                        ELEVATOR_IDS[v.id]
-                    )
-                )
-            else
-                ELEVATOR_IDS[v.id] = k
-            end
-        end
-
-        for k2, v2 in pairs(v.floors) do
-            ELEVATOR_CACHE[k].floors[k2] = {
-                locked = v2.defaultLocked or false
+        if not v.removed then
+            ELEVATOR_CACHE[k] = {
+                floors = {}
             }
+
+            if v.id then
+                if ELEVATOR_IDS[v.id] then
+                    Logger:Warn(
+                        'Doors',
+                        string.format(
+                            'Duplicate Elevator ID "%s" found at index %s (already registered to index %s)',
+                            v.id,
+                            k,
+                            ELEVATOR_IDS[v.id]
+                        )
+                    )
+                else
+                    ELEVATOR_IDS[v.id] = k
+                end
+            end
+
+            for k2, v2 in pairs(v.floors or {}) do
+                ELEVATOR_CACHE[k].floors[k2] = {
+                    locked = v2.defaultLocked or false
+                }
+            end
         end
     end
 
-    Logger:Trace('Doors', 'Loaded ^2'.. #_doorConfig .. '^7 Doors & ^2'.. #_elevatorConfig .. '^7 Elevators')
+    Logger:Trace('Doors', 'Loaded ^2' .. #_doorConfig .. '^7 Doors & ^2' .. #_elevatorConfig .. '^7 Elevators')
 end
 
 local function SerializeElevatorFloorsForDB(floors)
@@ -478,33 +502,33 @@ function CheckPlayerAuth(source, doorPermissionData)
             local stateId = char:GetData('SID')
 
             if Jobs.Permissions:HasJob(source, 'dgang', false, false, 99, true) then
-				return true
-			end
+                return true
+            end
 
             for k, v in ipairs(doorPermissionData) do
-				if v.type == 'character' then
-					if stateId == v.SID then
-						return true
-					end
-				elseif v.type == 'job' then
-					if v.job then
-						local wp = (v.workplace and v.workplace ~= '' and v.workplace ~= 'false') and v.workplace or false
-						local gr = (v.grade and v.grade ~= '' and v.grade ~= 'false') and v.grade or false
-						local gl = (v.gradeLevel and tonumber(v.gradeLevel) and tonumber(v.gradeLevel) > 0) and tonumber(v.gradeLevel) or false
-						if Jobs.Permissions:HasJob(source, v.job, wp, gr, gl, v.reqDuty, v.jobPermission) then
-							return true
-						end
-					elseif v.jobPermission then
-						if Jobs.Permissions:HasPermission(source, v.jobPermission) then
-							return true
-						end
-					end
+                if v.type == 'character' then
+                    if stateId == v.SID then
+                        return true
+                    end
+                elseif v.type == 'job' then
+                    if v.job then
+                        local wp = (v.workplace and v.workplace ~= '' and v.workplace ~= 'false') and v.workplace or false
+                        local gr = (v.grade and v.grade ~= '' and v.grade ~= 'false') and v.grade or false
+                        local gl = (v.gradeLevel and tonumber(v.gradeLevel) and tonumber(v.gradeLevel) > 0) and tonumber(v.gradeLevel) or false
+                        if Jobs.Permissions:HasJob(source, v.job, wp, gr, gl, v.reqDuty, v.jobPermission) then
+                            return true
+                        end
+                    elseif v.jobPermission then
+                        if Jobs.Permissions:HasPermission(source, v.jobPermission) then
+                            return true
+                        end
+                    end
                 elseif v.type == 'propertyData' then
-					if Properties.Keys:HasAccessWithData(source, v.key, v.value) then
-						return true
-					end
-				end
-			end
+                    if Properties.Keys:HasAccessWithData(source, v.key, v.value) then
+                        return true
+                    end
+                end
+            end
         end
     end
     return false
@@ -547,7 +571,7 @@ end)
 function GetDoorOutput(data)
     local printout = "{\n\tid = \"" .. data.name .. "\",\n\tmodel = " .. data.model .. ","
 
-    printout = printout .. "\n\tcoords = vector3(" .. tostring(Utils:Round(data.coords.x, 2)) .. ", " .. tostring(Utils:Round(data.coords.y, 2))  .. ", " .. tostring(Utils:Round(data.coords.z, 2)) .."),"
+    printout = printout .. "\n\tcoords = vector3(" .. tostring(Utils:Round(data.coords.x, 2)) .. ", " .. tostring(Utils:Round(data.coords.y, 2)) .. ", " .. tostring(Utils:Round(data.coords.z, 2)) .. "),"
     printout = printout .. "\n}\n\n"
     return printout
 end
@@ -561,47 +585,70 @@ function LoadDynamicDoors()
         if success and results and #results > 0 then
             local staticCount = #_doorConfig
             local addedCount = 0
+            local skippedCount = 0
 
             DYNAMIC_DOOR_INDICES = DYNAMIC_DOOR_INDICES or {}
 
             for _, doc in ipairs(results) do
-                local door = {
-                    id = doc.id,
-                    model = doc.model,
-                    coords = vector3(doc.coords.x + 0.0, doc.coords.y + 0.0, doc.coords.z + 0.0),
-                    locked = doc.locked or false,
-                    isDynamic = true,
-                    dbId = tostring(doc._id),
-                    maxDist = doc.maxDist and (doc.maxDist + 0.0) or nil,
-                    canLockpick = doc.canLockpick or false,
-                    holdOpen = doc.holdOpen or false,
-                    autoRate = doc.autoRate and (doc.autoRate + 0.0) or nil,
-                    autoDist = doc.autoDist and (doc.autoDist + 0.0) or nil,
-                    autoLock = doc.autoLock and (doc.autoLock + 0.0) or nil,
-                    double = doc.double or nil,
-                    special = doc.special or nil,
-                    restricted = (doc.restricted and #doc.restricted > 0) and doc.restricted or nil,
-                }
+                local exists, existingIndex = DoorIdExists(doc.id)
 
-                table.insert(_doorConfig, door)
-                local newIndex = #_doorConfig
-                DYNAMIC_DOOR_INDICES[newIndex] = true
-                addedCount = addedCount + 1
+                if doc.id and exists then
+                    skippedCount = skippedCount + 1
+                    Logger:Warn(
+                        'Doors',
+                        string.format(
+                            'Skipping DB Door "%s" - already exists at index %s',
+                            doc.id,
+                            existingIndex
+                        )
+                    )
+                else
+                    local door = {
+                        id = doc.id,
+                        model = doc.model,
+                        coords = vector3(doc.coords.x + 0.0, doc.coords.y + 0.0, doc.coords.z + 0.0),
+                        locked = doc.locked or false,
+                        isDynamic = true,
+                        dbId = tostring(doc._id),
+                        maxDist = doc.maxDist and (doc.maxDist + 0.0) or nil,
+                        canLockpick = doc.canLockpick or false,
+                        holdOpen = doc.holdOpen or false,
+                        autoRate = doc.autoRate and (doc.autoRate + 0.0) or nil,
+                        autoDist = doc.autoDist and (doc.autoDist + 0.0) or nil,
+                        autoLock = doc.autoLock and (doc.autoLock + 0.0) or nil,
+                        double = doc.double or nil,
+                        special = doc.special or nil,
+                        restricted = (doc.restricted and #doc.restricted > 0) and doc.restricted or nil,
+                    }
+
+                    table.insert(_doorConfig, door)
+                    local newIndex = #_doorConfig
+                    DYNAMIC_DOOR_INDICES[newIndex] = true
+                    addedCount = addedCount + 1
+                end
             end
 
-            p:resolve(addedCount)
+            p:resolve({
+                added = addedCount,
+                skipped = skippedCount,
+                static = staticCount,
+            })
 
-            Logger:Trace('Doors', 'Loaded ^2' .. addedCount .. '^7 DB doors in addition to ^3' .. staticCount .. '^7 static doors')
+            Logger:Trace('Doors', 'Loaded ^2' .. addedCount .. '^7 DB doors in addition to ^3' .. staticCount .. '^7 static doors (^1' .. skippedCount .. '^7 skipped duplicates)')
         else
-            p:resolve(0)
+            p:resolve({
+                added = 0,
+                skipped = 0,
+                static = #_doorConfig,
+            })
         end
     end)
 
-    local count = Citizen.Await(p)
-    if count > 0 then
+    local result = Citizen.Await(p)
+    if result.added > 0 then
         Logger:Trace('Doors', 'Using static + database doors')
     else
-        Logger:Trace('Doors', 'No DB doors found - using static config files only. Run /migratedoors to migrate.')
+        Logger:Trace('Doors', 'No DB doors loaded - using static config files only.')
     end
 end
 
@@ -632,6 +679,16 @@ exports('GetAllDoors', function()
 end)
 
 exports('AddDynamicDoor', function(doorData)
+    local exists, existingIndex = DoorIdExists(doorData.id)
+    if doorData.id and exists then
+        Logger:Warn('Doors', string.format('Failed to add dynamic door "%s" - ID already exists at index %s', doorData.id, existingIndex))
+        return {
+            success = false,
+            reason = 'duplicate_id',
+            existingIndex = existingIndex,
+        }
+    end
+
     local p = promise.new()
     Database.Game:insertOne({
         collection = 'doors_custom',
@@ -699,14 +756,21 @@ exports('RemoveDynamicDoor', function(doorIndex)
     local door = _doorConfig[doorIndex]
     if not door then return false end
 
-    if door.id then
+    local query = {}
+    if door.dbId then
+        query._id = door.dbId
+    elseif door.id then
+        query.id = door.id
+    end
+
+    if next(query) then
         Database.Game:deleteOne({
             collection = 'doors_custom',
-            query = { id = door.id },
+            query = query,
         })
     end
 
-    if door.id and DOORS_IDS[door.id] then
+    if door.id and DOORS_IDS[door.id] == doorIndex then
         DOORS_IDS[door.id] = nil
     end
     DOORS_CACHE[doorIndex] = nil
@@ -720,11 +784,26 @@ end)
 exports('UpdateDynamicDoor', function(doorIndex, doorData)
     if not DYNAMIC_DOOR_INDICES[doorIndex] then return false end
     local door = _doorConfig[doorIndex]
-    if not door or not door.id then return false end
+    if not door then return false end
+
+    local exists, existingIndex = DoorIdExists(doorData.id, doorIndex)
+    if doorData.id and exists then
+        Logger:Warn('Doors', string.format('Failed to update dynamic door at index %s to ID "%s" - already exists at index %s', doorIndex, doorData.id, existingIndex))
+        return false
+    end
+
+    local query = {}
+    if door.dbId then
+        query._id = door.dbId
+    elseif door.id then
+        query.id = door.id
+    else
+        return false
+    end
 
     Database.Game:updateOne({
         collection = 'doors_custom',
-        query = { id = door.id },
+        query = query,
         update = {
             ['$set'] = {
                 id = doorData.id,
@@ -744,7 +823,7 @@ exports('UpdateDynamicDoor', function(doorIndex, doorData)
         }
     })
 
-    if door.id and DOORS_IDS[door.id] then
+    if door.id and DOORS_IDS[door.id] == doorIndex then
         DOORS_IDS[door.id] = nil
     end
 
@@ -780,75 +859,98 @@ function LoadDynamicElevators()
         if success and results and #results > 0 then
             local staticCount = #_elevatorConfig
             local addedCount = 0
+            local skippedCount = 0
 
             DYNAMIC_ELEVATOR_INDICES = DYNAMIC_ELEVATOR_INDICES or {}
 
             for _, doc in ipairs(results) do
-                local elevator = {
-                    id = doc.id or false,
-                    name = doc.name or 'Unnamed Elevator',
-                    canLock = doc.canLock or nil,
-                    isDynamic = true,
-                    dbId = tostring(doc._id),
-                    floors = {},
-                }
+                local exists, existingIndex = ElevatorIdExists(doc.id)
 
-                if doc.floors then
-                    for floorKey, floorDoc in pairs(doc.floors) do
-                        local floorNum = tonumber(floorKey)
-                        if floorNum then
-                            local floor = {
-                                name = floorDoc.name or ('Floor ' .. floorNum),
-                                coords = vector4(
-                                    (floorDoc.coords and floorDoc.coords.x or 0) + 0.0,
-                                    (floorDoc.coords and floorDoc.coords.y or 0) + 0.0,
-                                    (floorDoc.coords and floorDoc.coords.z or 0) + 0.0,
-                                    (floorDoc.coords and floorDoc.coords.w or 0) + 0.0
-                                ),
-                                defaultLocked = floorDoc.defaultLocked or false,
-                                restricted = floorDoc.restricted or nil,
-                                bypassLock = floorDoc.bypassLock or nil,
-                            }
+                if doc.id and exists then
+                    skippedCount = skippedCount + 1
+                    Logger:Warn(
+                        'Doors',
+                        string.format(
+                            'Skipping DB Elevator "%s" - already exists at index %s',
+                            doc.id,
+                            existingIndex
+                        )
+                    )
+                else
+                    local elevator = {
+                        id = doc.id or false,
+                        name = doc.name or 'Unnamed Elevator',
+                        canLock = doc.canLock or nil,
+                        isDynamic = true,
+                        dbId = tostring(doc._id),
+                        floors = {},
+                    }
 
-                            if floorDoc.zone then
-                                floor.zone = {
-                                    center = vector3(
-                                        (floorDoc.zone.center and floorDoc.zone.center.x or 0) + 0.0,
-                                        (floorDoc.zone.center and floorDoc.zone.center.y or 0) + 0.0,
-                                        (floorDoc.zone.center and floorDoc.zone.center.z or 0) + 0.0
+                    if doc.floors then
+                        for floorKey, floorDoc in pairs(doc.floors) do
+                            local floorNum = tonumber(floorKey)
+                            if floorNum then
+                                local floor = {
+                                    name = floorDoc.name or ('Floor ' .. floorNum),
+                                    coords = vector4(
+                                        (floorDoc.coords and floorDoc.coords.x or 0) + 0.0,
+                                        (floorDoc.coords and floorDoc.coords.y or 0) + 0.0,
+                                        (floorDoc.coords and floorDoc.coords.z or 0) + 0.0,
+                                        (floorDoc.coords and floorDoc.coords.w or 0) + 0.0
                                     ),
-                                    length = (floorDoc.zone.length or 1.5) + 0.0,
-                                    width = (floorDoc.zone.width or 1.5) + 0.0,
-                                    heading = (floorDoc.zone.heading or 0) + 0.0,
-                                    minZ = (floorDoc.zone.minZ or 0) + 0.0,
-                                    maxZ = (floorDoc.zone.maxZ or 0) + 0.0,
+                                    defaultLocked = floorDoc.defaultLocked or false,
+                                    restricted = floorDoc.restricted or nil,
+                                    bypassLock = floorDoc.bypassLock or nil,
                                 }
-                            end
 
-                            elevator.floors[floorNum] = floor
+                                if floorDoc.zone then
+                                    floor.zone = {
+                                        center = vector3(
+                                            (floorDoc.zone.center and floorDoc.zone.center.x or 0) + 0.0,
+                                            (floorDoc.zone.center and floorDoc.zone.center.y or 0) + 0.0,
+                                            (floorDoc.zone.center and floorDoc.zone.center.z or 0) + 0.0
+                                        ),
+                                        length = (floorDoc.zone.length or 1.5) + 0.0,
+                                        width = (floorDoc.zone.width or 1.5) + 0.0,
+                                        heading = (floorDoc.zone.heading or 0) + 0.0,
+                                        minZ = (floorDoc.zone.minZ or 0) + 0.0,
+                                        maxZ = (floorDoc.zone.maxZ or 0) + 0.0,
+                                    }
+                                end
+
+                                elevator.floors[floorNum] = floor
+                            end
                         end
                     end
-                end
 
-                table.insert(_elevatorConfig, elevator)
-                local newIndex = #_elevatorConfig
-                DYNAMIC_ELEVATOR_INDICES[newIndex] = true
-                addedCount = addedCount + 1
+                    table.insert(_elevatorConfig, elevator)
+                    local newIndex = #_elevatorConfig
+                    DYNAMIC_ELEVATOR_INDICES[newIndex] = true
+                    addedCount = addedCount + 1
+                end
             end
 
-            p:resolve(addedCount)
+            p:resolve({
+                added = addedCount,
+                skipped = skippedCount,
+                static = staticCount,
+            })
 
-            Logger:Trace('Doors', 'Loaded ^2' .. addedCount .. '^7 DB elevators in addition to ^3' .. staticCount .. '^7 static elevators')
+            Logger:Trace('Doors', 'Loaded ^2' .. addedCount .. '^7 DB elevators in addition to ^3' .. staticCount .. '^7 static elevators (^1' .. skippedCount .. '^7 skipped duplicates)')
         else
-            p:resolve(0)
+            p:resolve({
+                added = 0,
+                skipped = 0,
+                static = #_elevatorConfig,
+            })
         end
     end)
 
-    local count = Citizen.Await(p)
-    if count > 0 then
+    local result = Citizen.Await(p)
+    if result.added > 0 then
         Logger:Trace('Doors', 'Using static + database elevators')
     else
-        Logger:Trace('Doors', 'No DB elevators found - using static config files only.')
+        Logger:Trace('Doors', 'No DB elevators loaded - using static config files only.')
     end
 end
 
@@ -914,7 +1016,7 @@ exports('GetAllElevators', function()
             floors = {},
         }
 
-        for floorKey, floorData in pairs(v.floors) do
+        for floorKey, floorData in pairs(v.floors or {}) do
             elevator.floors[tostring(floorKey)] = {
                 name = floorData.name,
                 coords = {
@@ -950,6 +1052,16 @@ end)
 exports('AddDynamicElevator', function(data)
     local elevator = ParseElevatorDataFromAdmin(data)
 
+    local exists, existingIndex = ElevatorIdExists(elevator.id)
+    if elevator.id and exists then
+        Logger:Warn('Doors', string.format('Failed to add dynamic elevator "%s" - ID already exists at index %s', elevator.id, existingIndex))
+        return {
+            success = false,
+            reason = 'duplicate_id',
+            existingIndex = existingIndex,
+        }
+    end
+
     local dbFloors = SerializeElevatorFloorsForDB(elevator.floors)
 
     local p = promise.new()
@@ -974,6 +1086,10 @@ exports('AddDynamicElevator', function(data)
             local newIndex = #_elevatorConfig
             DYNAMIC_ELEVATOR_INDICES[newIndex] = true
 
+            if elevator.id and not ELEVATOR_IDS[elevator.id] then
+                ELEVATOR_IDS[elevator.id] = newIndex
+            end
+
             ELEVATOR_CACHE[newIndex] = { floors = {} }
             for floorKey, floorData in pairs(elevator.floors) do
                 ELEVATOR_CACHE[newIndex].floors[floorKey] = {
@@ -996,6 +1112,13 @@ exports('UpdateDynamicElevator', function(elevatorIndex, data)
     if not existing then return false end
 
     local elevator = ParseElevatorDataFromAdmin(data)
+
+    local exists, existingIndex = ElevatorIdExists(elevator.id, elevatorIndex)
+    if elevator.id and exists then
+        Logger:Warn('Doors', string.format('Failed to update dynamic elevator at index %s to ID "%s" - already exists at index %s', elevatorIndex, elevator.id, existingIndex))
+        return false
+    end
+
     elevator.dbId = existing.dbId
 
     local dbFloors = SerializeElevatorFloorsForDB(elevator.floors)
@@ -1022,7 +1145,15 @@ exports('UpdateDynamicElevator', function(elevatorIndex, data)
         }
     })
 
+    if existing.id and ELEVATOR_IDS[existing.id] == elevatorIndex then
+        ELEVATOR_IDS[existing.id] = nil
+    end
+
     _elevatorConfig[elevatorIndex] = elevator
+
+    if elevator.id and not ELEVATOR_IDS[elevator.id] then
+        ELEVATOR_IDS[elevator.id] = elevatorIndex
+    end
 
     ELEVATOR_CACHE[elevatorIndex] = { floors = {} }
     for floorKey, floorData in pairs(elevator.floors) do
@@ -1052,6 +1183,10 @@ exports('RemoveDynamicElevator', function(elevatorIndex)
             collection = 'elevators_custom',
             query = query,
         })
+    end
+
+    if elevator.id and ELEVATOR_IDS[elevator.id] == elevatorIndex then
+        ELEVATOR_IDS[elevator.id] = nil
     end
 
     ELEVATOR_CACHE[elevatorIndex] = nil
