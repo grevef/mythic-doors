@@ -1,6 +1,7 @@
 DOORS_CACHE = {}
 DOORS_IDS = {}
 ELEVATOR_CACHE = {}
+ELEVATOR_IDS = {}
 
 DYNAMIC_DOOR_INDICES = {}
 DYNAMIC_ELEVATOR_INDICES = {}
@@ -53,10 +54,28 @@ function RunStartup()
     if _startup then return; end
     _startup = true
 
+    DOORS_CACHE = {}
+    DOORS_IDS = {}
+    
+    ELEVATOR_CACHE = {}
+    ELEVATOR_IDS = {}
+
     for k, v in ipairs(_doorConfig) do
         if v.model and v.coords then
-            if v.id and not DOORS_IDS[v.id] then
-                DOORS_IDS[v.id] = k
+            if v.id then
+                if DOORS_IDS[v.id] then
+                    Logger:Warn(
+                        'Doors',
+                        string.format(
+                            'Duplicate Door ID "%s" found at index %s (already registered to index %s)',
+                            v.id,
+                            k,
+                            DOORS_IDS[v.id]
+                        )
+                    )
+                else
+                    DOORS_IDS[v.id] = k
+                end
             end
 
             DOORS_CACHE[k] = {
@@ -72,7 +91,25 @@ function RunStartup()
             floors = {}
         }
 
-        for k2,v2 in pairs(v.floors) do
+        if v.id then
+            ELEVATOR_IDS = ELEVATOR_IDS or {}
+
+            if ELEVATOR_IDS[v.id] then
+                Logger:Warn(
+                    'Doors',
+                    string.format(
+                        'Duplicate Elevator ID "%s" found at index %s (already registered to index %s)',
+                        v.id,
+                        k,
+                        ELEVATOR_IDS[v.id]
+                    )
+                )
+            else
+                ELEVATOR_IDS[v.id] = k
+            end
+        end
+
+        for k2, v2 in pairs(v.floors) do
             ELEVATOR_CACHE[k].floors[k2] = {
                 locked = v2.defaultLocked or false
             }
@@ -523,8 +560,9 @@ function LoadDynamicDoors()
     }, function(success, results)
         if success and results and #results > 0 then
             local staticCount = #_doorConfig
-            _doorConfig = {}
-            DYNAMIC_DOOR_INDICES = {}
+            local addedCount = 0
+
+            DYNAMIC_DOOR_INDICES = DYNAMIC_DOOR_INDICES or {}
 
             for _, doc in ipairs(results) do
                 local door = {
@@ -544,27 +582,26 @@ function LoadDynamicDoors()
                     special = doc.special or nil,
                     restricted = (doc.restricted and #doc.restricted > 0) and doc.restricted or nil,
                 }
+
                 table.insert(_doorConfig, door)
+                local newIndex = #_doorConfig
+                DYNAMIC_DOOR_INDICES[newIndex] = true
+                addedCount = addedCount + 1
             end
 
-            for i = 1, #_doorConfig do
-                DYNAMIC_DOOR_INDICES[i] = true
-            end
+            p:resolve(addedCount)
 
-            p:resolve(#_doorConfig)
-
-            if staticCount > 0 then
-                Logger:Trace('Doors', 'Database has doors - replaced ^3' .. staticCount .. '^7 static configs with ^2' .. #_doorConfig .. '^7 DB doors')
-            end
+            Logger:Trace('Doors', 'Loaded ^2' .. addedCount .. '^7 DB doors in addition to ^3' .. staticCount .. '^7 static doors')
         else
             p:resolve(0)
         end
     end)
+
     local count = Citizen.Await(p)
     if count > 0 then
-        Logger:Trace('Doors', 'Loaded ^2' .. count .. '^7 Doors From Database')
+        Logger:Trace('Doors', 'Using static + database doors')
     else
-        Logger:Trace('Doors', 'No DB doors found - using static config files. Run /migratedoors to migrate.')
+        Logger:Trace('Doors', 'No DB doors found - using static config files only. Run /migratedoors to migrate.')
     end
 end
 
@@ -742,8 +779,9 @@ function LoadDynamicElevators()
     }, function(success, results)
         if success and results and #results > 0 then
             local staticCount = #_elevatorConfig
-            _elevatorConfig = {}
-            DYNAMIC_ELEVATOR_INDICES = {}
+            local addedCount = 0
+
+            DYNAMIC_ELEVATOR_INDICES = DYNAMIC_ELEVATOR_INDICES or {}
 
             for _, doc in ipairs(results) do
                 local elevator = {
@@ -793,24 +831,24 @@ function LoadDynamicElevators()
                 end
 
                 table.insert(_elevatorConfig, elevator)
+                local newIndex = #_elevatorConfig
+                DYNAMIC_ELEVATOR_INDICES[newIndex] = true
+                addedCount = addedCount + 1
             end
 
-            for i = 1, #_elevatorConfig do
-                DYNAMIC_ELEVATOR_INDICES[i] = true
-            end
+            p:resolve(addedCount)
 
-            p:resolve(#_elevatorConfig)
-
-            if staticCount > 0 then
-                Logger:Trace('Doors', 'Database has elevators - replaced ^3' .. staticCount .. '^7 static configs with ^2' .. #_elevatorConfig .. '^7 DB elevators')
-            end
+            Logger:Trace('Doors', 'Loaded ^2' .. addedCount .. '^7 DB elevators in addition to ^3' .. staticCount .. '^7 static elevators')
         else
             p:resolve(0)
         end
     end)
+
     local count = Citizen.Await(p)
     if count > 0 then
-        Logger:Trace('Doors', 'Loaded ^2' .. count .. '^7 Elevators From Database')
+        Logger:Trace('Doors', 'Using static + database elevators')
+    else
+        Logger:Trace('Doors', 'No DB elevators found - using static config files only.')
     end
 end
 
